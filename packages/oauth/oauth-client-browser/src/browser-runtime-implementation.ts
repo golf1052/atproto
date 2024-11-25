@@ -35,7 +35,9 @@ export class BrowserRuntimeImplementation implements RuntimeImplementation {
   }
 
   async createKey(algs: string[]): Promise<Key> {
-    return WebcryptoKey.generate(algs)
+    return WebcryptoKey.generate(algs, crypto.randomUUID(), {
+      extractable: true,
+    })
   }
 
   getRandomValues(byteLength: number): Uint8Array {
