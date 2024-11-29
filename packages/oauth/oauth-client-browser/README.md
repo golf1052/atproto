@@ -1,3 +1,15 @@
+# Custom Instructions
+
+On a new merge from upstream
+
+1. `pnpm build`
+2. `pnpm --filter=@atproto/oauth-client-browser deploy testdist`
+3. `pnpm pack`
+4. Copy the `package.json` from the created .tgz to the root of the `testdist`
+5. Delete the .tgz
+5. Push the changes
+
+
 # atproto OAuth Client for the Browser
 
 This package provides a browser specific OAuth client implementation for
