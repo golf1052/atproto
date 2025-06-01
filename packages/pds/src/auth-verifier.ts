@@ -1,6 +1,7 @@
 import { KeyObject, createPublicKey, createSecretKey } from 'node:crypto'
 import { IncomingMessage, ServerResponse } from 'node:http'
-
+import * as jose from 'jose'
+import KeyEncoder from 'key-encoder'
 import { getVerificationMaterial } from '@atproto/common'
 import { IdResolver, getDidKeyFromMultibase } from '@atproto/identity'
 import {
@@ -18,9 +19,7 @@ import {
   parseReqNsid,
   verifyJwt as verifyServiceJwt,
 } from '@atproto/xrpc-server'
-import * as jose from 'jose'
-import KeyEncoder from 'key-encoder'
-import { AccountManager } from './account-manager'
+import { AccountManager } from './account-manager/account-manager'
 import { softDeleted } from './db'
 
 type ReqCtx = AuthVerifierContext | StreamAuthVerifierContext
@@ -32,6 +31,7 @@ export enum AuthScope {
   AppPass = 'com.atproto.appPass',
   AppPassPrivileged = 'com.atproto.appPassPrivileged',
   SignupQueued = 'com.atproto.signupQueued',
+  Takendown = 'com.atproto.takendown',
 }
 
 export type AccessOpts = {
@@ -46,17 +46,17 @@ export enum RoleStatus {
   Missing,
 }
 
-type NullOutput = {
+export type NullOutput = {
   credentials: null
 }
 
-type AdminTokenOutput = {
+export type AdminTokenOutput = {
   credentials: {
     type: 'admin_token'
   }
 }
 
-type ModServiceOutput = {
+export type ModServiceOutput = {
   credentials: {
     type: 'mod_service'
     aud: string
@@ -64,29 +64,35 @@ type ModServiceOutput = {
   }
 }
 
-type AccessOutput = {
+export type AccessOutput = {
   credentials: {
     type: 'access'
     did: string
     scope: AuthScope
-    audience: string | undefined
     isPrivileged: boolean
   }
-  artifacts: string
 }
 
-type RefreshOutput = {
+export type OAuthOutput = {
+  credentials: {
+    type: 'oauth'
+    did: string
+    scope: AuthScope
+    isPrivileged: boolean
+    oauthScopes: Set<string>
+  }
+}
+
+export type RefreshOutput = {
   credentials: {
     type: 'refresh'
     did: string
     scope: AuthScope
-    audience: string | undefined
     tokenId: string
   }
-  artifacts: string
 }
 
-type UserServiceAuthOutput = {
+export type UserServiceAuthOutput = {
   credentials: {
     type: 'user_service_auth'
     aud: string
@@ -139,7 +145,7 @@ export class AuthVerifier {
 
   accessStandard =
     (opts: Partial<AccessOpts> = {}) =>
-    (ctx: ReqCtx): Promise<AccessOutput> => {
+    async (ctx: ReqCtx): Promise<AccessOutput | OAuthOutput> => {
       return this.validateAccessToken(
         ctx,
         [
@@ -154,7 +160,7 @@ export class AuthVerifier {
 
   accessFull =
     (opts: Partial<AccessOpts> = {}) =>
-    (ctx: ReqCtx): Promise<AccessOutput> => {
+    (ctx: ReqCtx): Promise<AccessOutput | OAuthOutput> => {
       return this.validateAccessToken(
         ctx,
         [AuthScope.Access, ...(opts.additional ?? [])],
@@ -164,7 +170,7 @@ export class AuthVerifier {
 
   accessPrivileged =
     (opts: Partial<AccessOpts> = {}) =>
-    (ctx: ReqCtx): Promise<AccessOutput> => {
+    (ctx: ReqCtx): Promise<AccessOutput | OAuthOutput> => {
       return this.validateAccessToken(ctx, [
         AuthScope.Access,
         AuthScope.AppPassPrivileged,
@@ -173,34 +179,30 @@ export class AuthVerifier {
     }
 
   refresh = async (ctx: ReqCtx): Promise<RefreshOutput> => {
-    const { did, scope, token, tokenId, audience } =
-      await this.validateRefreshToken(ctx)
+    const { did, scope, tokenId } = await this.validateRefreshToken(ctx)
 
     return {
       credentials: {
         type: 'refresh',
         did,
         scope,
-        audience,
         tokenId,
       },
-      artifacts: token,
     }
   }
 
   refreshExpired = async (ctx: ReqCtx): Promise<RefreshOutput> => {
-    const { did, scope, token, tokenId, audience } =
-      await this.validateRefreshToken(ctx, { clockTolerance: Infinity })
+    const { did, scope, tokenId } = await this.validateRefreshToken(ctx, {
+      clockTolerance: Infinity,
+    })
 
     return {
       credentials: {
         type: 'refresh',
         did,
         scope,
-        audience,
         tokenId,
       },
-      artifacts: token,
     }
   }
 
@@ -209,17 +211,19 @@ export class AuthVerifier {
     return this.validateAdminToken(ctx)
   }
 
-  optionalAccessOrAdminToken = async (
-    ctx: ReqCtx,
-  ): Promise<AccessOutput | AdminTokenOutput | NullOutput> => {
-    if (isAccessToken(ctx.req)) {
-      return await this.accessStandard()(ctx)
-    } else if (isBasicToken(ctx.req)) {
-      return await this.adminToken(ctx)
-    } else {
-      return this.null(ctx)
+  optionalAccessOrAdminToken =
+    (opts: Partial<AccessOpts> = {}) =>
+    async (
+      ctx: ReqCtx,
+    ): Promise<AccessOutput | OAuthOutput | AdminTokenOutput | NullOutput> => {
+      if (isAccessToken(ctx.req)) {
+        return await this.accessStandard(opts)(ctx)
+      } else if (isBasicToken(ctx.req)) {
+        return await this.adminToken(ctx)
+      } else {
+        return this.null(ctx)
+      }
     }
-  }
 
   userServiceAuth = async (ctx: ReqCtx): Promise<UserServiceAuthOutput> => {
     const payload = await this.verifyServiceJwt(ctx, {
@@ -256,7 +260,9 @@ export class AuthVerifier {
 
   accessOrUserServiceAuth =
     (opts: Partial<AccessOpts> = {}) =>
-    async (ctx: ReqCtx): Promise<UserServiceAuthOutput | AccessOutput> => {
+    async (
+      ctx: ReqCtx,
+    ): Promise<UserServiceAuthOutput | AccessOutput | OAuthOutput> => {
       const token = bearerTokenFromReq(ctx.req)
       if (token) {
         const payload = jose.decodeJwt(token)
@@ -409,10 +415,10 @@ export class AuthVerifier {
       checkTakedown = false,
       checkDeactivated = false,
     }: { checkTakedown?: boolean; checkDeactivated?: boolean } = {},
-  ): Promise<AccessOutput> {
+  ): Promise<AccessOutput | OAuthOutput> {
     this.setAuthHeaders(ctx)
 
-    let accessOutput: AccessOutput
+    let accessOutput: AccessOutput | OAuthOutput
 
     const [type] = parseAuthorizationHeader(ctx.req.headers.authorization)
     switch (type) {
@@ -465,7 +471,7 @@ export class AuthVerifier {
   protected async validateDpopAccessToken(
     ctx: ReqCtx,
     scopes: AuthScope[],
-  ): Promise<AccessOutput> {
+  ): Promise<OAuthOutput> {
     this.setAuthHeaders(ctx)
 
     const { req } = ctx
@@ -496,16 +502,16 @@ export class AuthVerifier {
         throw new InvalidRequestError('Malformed token', 'InvalidToken')
       }
 
-      const tokenScopes = new Set(result.claims.scope?.split(' '))
+      const oauthScopes = new Set(result.claims.scope?.split(' '))
 
-      if (!tokenScopes.has('transition:generic')) {
+      if (!oauthScopes.has('transition:generic')) {
         throw new AuthRequiredError(
           'Missing required scope: transition:generic',
           'InvalidToken',
         )
       }
 
-      const scopeEquivalent: AuthScope = tokenScopes.has('transition:chat.bsky')
+      const scopeEquivalent: AuthScope = oauthScopes.has('transition:chat.bsky')
         ? AuthScope.AppPassPrivileged
         : AuthScope.AppPass
 
@@ -526,20 +532,14 @@ export class AuthVerifier {
         )
       }
 
-      const isPrivileged = [
-        AuthScope.Access,
-        AuthScope.AppPassPrivileged,
-      ].includes(scopeEquivalent)
-
       return {
         credentials: {
-          type: 'access',
+          type: 'oauth',
           did: result.claims.sub,
           scope: scopeEquivalent,
-          audience: this.dids.pds,
-          isPrivileged,
+          oauthScopes,
+          isPrivileged: scopeEquivalent === AuthScope.AppPassPrivileged,
         },
-        artifacts: result.token,
       }
     } catch (err) {
       // Make sure to include any WWW-Authenticate header in the response
@@ -561,24 +561,21 @@ export class AuthVerifier {
     ctx: ReqCtx,
     scopes: AuthScope[],
   ): Promise<AccessOutput> {
-    const { did, scope, token, audience } = await this.validateBearerToken(
-      ctx,
-      scopes,
-      { audience: this.dids.pds, typ: 'at+jwt' },
-    )
-    const isPrivileged = [
-      AuthScope.Access,
-      AuthScope.AppPassPrivileged,
-    ].includes(scope)
+    const { did, scope } = await this.validateBearerToken(ctx, scopes, {
+      audience: this.dids.pds,
+      typ: 'at+jwt',
+    })
+
+    const isPrivileged =
+      scope === AuthScope.Access || scope === AuthScope.AppPassPrivileged
+
     return {
       credentials: {
         type: 'access',
         did,
         scope,
-        audience,
         isPrivileged,
       },
-      artifacts: token,
     }
   }
 
@@ -635,7 +632,7 @@ export class AuthVerifier {
   }
 
   isUserOrAdmin(
-    auth: AccessOutput | AdminTokenOutput | NullOutput,
+    auth: AccessOutput | OAuthOutput | AdminTokenOutput | NullOutput,
     did: string,
   ): boolean {
     if (!auth.credentials) {
