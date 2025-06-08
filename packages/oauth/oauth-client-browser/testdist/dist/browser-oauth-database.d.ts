@@ -1,8 +1,8 @@
-import { ResolvedHandle } from '@atproto-labs/handle-resolver';
-import { SimpleStore, Value } from '@atproto-labs/simple-store';
 import { DidDocument } from '@atproto/did';
 import { InternalStateData, Session, TokenSet } from '@atproto/oauth-client';
 import { OAuthAuthorizationServerMetadata, OAuthProtectedResourceMetadata } from '@atproto/oauth-types';
+import { ResolvedHandle } from '@atproto-labs/handle-resolver';
+import { SimpleStore, Value } from '@atproto-labs/simple-store';
 import { DBObjectStore } from './indexed-db/index.js';
 type Item<V> = {
     value: V;

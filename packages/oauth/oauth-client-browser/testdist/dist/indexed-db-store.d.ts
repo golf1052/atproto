@@ -1,4 +1,4 @@
-import { SimpleStore, Key, Value } from '@atproto-labs/simple-store';
+import { Key, SimpleStore, Value } from '@atproto-labs/simple-store';
 import { DBObjectStore } from './indexed-db/index.js';
 type Item<V> = {
     value: V;

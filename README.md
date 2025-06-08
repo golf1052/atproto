@@ -1,5 +1,11 @@
 # AT Protocol Reference Implementation (TypeScript)
 
+## Fork just for oauth-client-browser
+
+Please see [README here](./packages/oauth/oauth-client-browser/README.md)
+
+-----
+
 Welcome friends!
 
 This repository contains Bluesky's reference implementation of AT Protocol, and of the `app.bsky` microblogging application service backend.
