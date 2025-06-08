@@ -24,9 +24,9 @@ export default (ctx: AppContext): Partial<ServiceImpl<typeof Service>> => ({
     return new PutOperationResponse({
       operation: {
         id: String(id),
-        collection: op.collection,
         actorDid: op.actorDid,
-        rkey: op.rkey,
+        namespace: op.namespace,
+        key: op.key,
         method: op.method,
         payload: op.payload,
       },
@@ -39,9 +39,9 @@ const putOp = async (db: Database, op: Operation) => {
   const { id } = await db.db
     .insertInto('operation')
     .values({
-      collection: op.collection,
       actorDid: op.actorDid,
-      rkey: op.rkey,
+      namespace: op.namespace,
+      key: op.key,
       method: op.method,
       payload: op.payload,
     })
@@ -53,10 +53,10 @@ const putOp = async (db: Database, op: Operation) => {
 
 const validateOp = (req: PutOperationRequest): Operation => {
   try {
-    ensureValidNsid(req.collection)
+    ensureValidNsid(req.namespace)
   } catch (error) {
     throw new ConnectError(
-      'operation collection is invalid NSID',
+      'operation namespace is invalid NSID',
       Code.InvalidArgument,
     )
   }
@@ -69,9 +69,9 @@ const validateOp = (req: PutOperationRequest): Operation => {
   }
 
   try {
-    ensureValidRecordKey(req.rkey)
+    ensureValidRecordKey(req.key)
   } catch (error) {
-    throw new ConnectError('operation rkey is required', Code.InvalidArgument)
+    throw new ConnectError('operation key is required', Code.InvalidArgument)
   }
 
   if (
@@ -80,6 +80,17 @@ const validateOp = (req: PutOperationRequest): Operation => {
     req.method !== Method.DELETE
   ) {
     throw new ConnectError('operation method is invalid', Code.InvalidArgument)
+  }
+
+  if (req.method === Method.CREATE || req.method === Method.UPDATE) {
+    try {
+      JSON.parse(new TextDecoder().decode(req.payload))
+    } catch (error) {
+      throw new ConnectError(
+        'payload must be a valid JSON when method is CREATE or UPDATE',
+        Code.InvalidArgument,
+      )
+    }
   }
 
   if (req.method === Method.DELETE && req.payload.length > 0) {
@@ -93,9 +104,9 @@ const validateOp = (req: PutOperationRequest): Operation => {
 }
 
 type Operation = {
-  collection: string
   actorDid: string
-  rkey: string
+  namespace: string
+  key: string
   payload: Uint8Array
   method: OperationMethod
 }
