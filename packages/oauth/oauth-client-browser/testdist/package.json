@@ -1,6 +1,6 @@
 {
   "name": "@atproto/oauth-client-browser",
-  "version": "0.3.19",
+  "version": "0.3.21",
   "license": "MIT",
   "description": "ATPROTO OAuth client for the browser (relies on WebCrypto & Indexed DB)",
   "keywords": [
@@ -32,13 +32,13 @@
   ],
   "dependencies": {
     "@atproto-labs/did-resolver": "0.1.13",
-    "@atproto/did": "0.1.5",
     "@atproto-labs/simple-store": "0.2.0",
     "@atproto-labs/handle-resolver": "0.1.8",
-    "@atproto/jwk": "0.1.5",
-    "@atproto/jwk-webcrypto": "0.1.6",
-    "@atproto/oauth-client": "0.3.19",
-    "@atproto/oauth-types": "0.2.7"
+    "@atproto/did": "0.1.5",
+    "@atproto/jwk": "0.2.0",
+    "@atproto/jwk-webcrypto": "0.1.7",
+    "@atproto/oauth-client": "0.3.21",
+    "@atproto/oauth-types": "0.2.8"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

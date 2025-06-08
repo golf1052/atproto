@@ -2,12 +2,15 @@
 
 On a new merge from upstream
 
-1. `pnpm build`
-2. `pnpm --filter=@atproto/oauth-client-browser deploy testdist`
-3. `pnpm pack`
-4. Copy the `package.json` from the created .tgz to the root of the `testdist`
-5. Delete the .tgz
-5. Push the changes
+1. Make sure you're using Node 18.
+2. In the repo root run `pnpm install --frozen-lockfile`
+3. Now in this directory `pnpm build`
+4. Delete `testdist`
+5. `pnpm --filter=@atproto/oauth-client-browser deploy testdist`
+6. `pnpm pack`
+7. Copy the `package.json` from the created .tgz to the root of the `testdist`
+8. Delete the .tgz
+9. Push the changes
 
 
 # atproto OAuth Client for the Browser
